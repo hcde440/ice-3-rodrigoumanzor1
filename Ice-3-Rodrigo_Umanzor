@@ -1,0 +1,197 @@
+/*ICE #3
+//Dashboard URL: https://io.adafruit.com/rodrigoumanzor/dashboards/hcde-ice-3
+/************************ End Notes  *******************************/
+
+#include "config.h"
+#include <Adafruit_Sensor.h>
+#include <DHT.h> //DHT sensor library 
+#include <DHT_U.h> //DHT library 
+#include <Adafruit_MPL115A2.h> //MPL115A2
+#include <Wire.h> //MPL115A2
+#include <SPI.h> //OLED
+#include <Wire.h> //OLED
+#include <Adafruit_GFX.h> //OLED
+#include <Adafruit_SSD1306.h> //OLED
+
+
+Adafruit_MPL115A2 mpl115a2; //Temperature and pressure sensor (I2C)
+
+// pin connected to DH22 data line
+#define DATA_PIN 12
+
+// create DHT22 instance
+DHT_Unified dht(DATA_PIN, DHT22);
+
+// Set up the 'temperature', 'humidity', and 'pressure' feeds
+AdafruitIO_Feed *temperature = io.feed("Temperature");
+AdafruitIO_Feed *humidity = io.feed("Humidity");
+AdafruitIO_Feed *pressure = io.feed("Pressure");
+
+//OLED Setup
+#define SCREEN_WIDTH 128 // OLED display width, in pixels
+#define SCREEN_HEIGHT 32 // OLED display height, in pixels
+
+// Declaration for an SSD1306 display connected to I2C (SDA, SCL pins)
+#define OLED_RESET     -1 // Reset pin # (or -1 if sharing Arduino reset pin)
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+
+//Set logo display parameters
+#define LOGO_HEIGHT   16
+#define LOGO_WIDTH    16
+static const unsigned char PROGMEM logo_bmp[] =
+{ B00000000, B11000000,
+  B00000001, B11000000,
+  B00000001, B11000000,
+  B00000011, B11100000,
+  B11110011, B11100000,
+  B11111110, B11111000,
+  B01111110, B11111111,
+  B00110011, B10011111,
+  B00011111, B11111100,
+  B00001101, B01110000,
+  B00011011, B10100000,
+  B00111111, B11100000,
+  B00111111, B11110000,
+  B01111100, B11110000,
+  B01110000, B01110000,
+  B00000000, B00110000 };
+
+
+
+void setup() {
+
+  // start the serial connection
+  Serial.begin(115200);
+
+  // wait for serial monitor to open
+  while(! Serial);
+
+  // initialize dht22
+  dht.begin();
+
+  // connect to io.adafruit.com
+  Serial.print("Connecting to Adafruit IO");
+  io.connect();
+
+  // wait for a connection
+  while(io.status() < AIO_CONNECTED) {
+    Serial.print(".");
+    delay(500);
+  }
+
+  // we are connected
+  Serial.println();
+  Serial.println(io.statusText());
+  
+  Serial.println("Getting barometric pressure ...");
+  mpl115a2.begin(); //Initialize MPl115A2 sensor
+
+//OLED Setup
+// SSD1306_SWITCHCAPVCC = generate display voltage from 3.3V internally
+  if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) { // Address 0x3C for 128x32
+    Serial.println(F("SSD1306 allocation failed"));
+    for(;;); // Don't proceed, loop forever
+  }
+
+  // Show initial display buffer contents on the screen
+  // The library initializes this with an Adafruit splash screen
+  display.display();
+  delay(2000); // Pause for 2 seconds
+
+  // Clear the buffer
+  display.clearDisplay();
+
+  // Draw a single pixel in white
+  display.drawPixel(10, 10, WHITE);
+
+  // Show the display buffer on the screen. Must call display() after drawing commands to make them visible on the screen
+  display.display();
+  delay(2000);
+  
+
+  // Invert and restore display, pausing in-between
+  display.invertDisplay(true);
+  delay(1000);
+  display.invertDisplay(false);
+  delay(1000);
+}
+
+void loop() {
+
+  // io.run(); is required for all sketches.
+  // It should always be present at the top of loop function to keep the client connected to io.adafruit.com, and processes any incoming data.
+  io.run();
+
+  sensors_event_t event;
+  dht.temperature().getEvent(&event); //Get temperature from dht sensor
+
+  float celsius = event.temperature; //Using a float we can save values with decimal places 
+  float fahrenheit = (celsius * 1.8) + 32; //convert to fatrenheit
+
+  Serial.print("celsius: ");
+  Serial.print(celsius);
+  Serial.println("C");
+
+  Serial.print("fahrenheit: ");
+  Serial.print(fahrenheit);
+  Serial.println("F");
+
+  // save fahrenheit to Adafruit IO
+  temperature->save(fahrenheit);
+  
+  dht.humidity().getEvent(&event); //Get humidity from dht sensor 
+
+  Serial.print("humidity: ");
+  Serial.print(event.relative_humidity);
+  Serial.println("%");
+
+  // save humidity to Adafruit IO
+  humidity->save(event.relative_humidity);
+
+  // wait 5 seconds (5000 milliseconds == 5 seconds)
+  delay(5000);
+  
+// Integrate code for MPL115A2 temperature and pressure sensor
+
+float pressureKPA = 0, temperatureC = 0;    
+
+  pressureKPA = mpl115a2.getPressure();  //Get pressyre from MPL115A2
+  Serial.print("Pressure (kPa): "); Serial.print(pressureKPA, 4); Serial.println(" kPa");
+
+  temperatureC = mpl115a2.getTemperature();   //Get temperature from MPL115A2
+  Serial.print("Temp (*C): "); Serial.print(temperatureC, 1); Serial.println(" *C");
+
+  pressure->save(pressureKPA); //save pressure to Adafruit IO
+
+  delay(5000);
+
+
+//Displaying DHT sensor temperature data on OLED Display
+
+  float t = fahrenheit; //Assign varaible with temperature data from DHT sensor 
+
+
+  // Check if any reads failed.
+  if (isnan(t)) {
+    delay(2000);
+  } else{
+    // routine for converting temp/hum floats to char arrays
+    char temp_buff[5]; char hum_buff[5];
+    char temp_disp_buff[11] = "Tmp:";
+    char hum_disp_buff[11] = "Hum:";
+    
+    // appending temp/hum to buffers
+    dtostrf(t,2,1,temp_buff);
+    strcat(temp_disp_buff,temp_buff);
+
+    // routine for displaying text for temp/hum readout
+    display.clearDisplay();
+    display.setTextSize(2);
+    display.setTextColor(WHITE);
+    display.setCursor(0,0);
+    display.println(temp_disp_buff);
+//    display.println(hum_disp_buff);
+    display.display();
+    delay(2000);
+  }
+}
